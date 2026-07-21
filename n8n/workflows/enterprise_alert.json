@@ -1,0 +1,56 @@
+{
+  "name": "Enterprise Alert",
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "name": "Escalation Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "escalation-alert",
+        "responseMode": "onReceived",
+        "responseData": "allEntries"
+      },
+      "position": [240, 300]
+    },
+    {
+      "id": "format-message",
+      "name": "Format Slack Alert",
+      "type": "n8n-nodes-base.set",
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "slack_text",
+              "value": "=:rotating_light: *ENTERPRISE ALERT* — Ticket {{ $json.ticket_id }}\n*Account:* {{ $json.account_name }} ({{ $json.account_seat_count }} seats)\n*Issue:* {{ $json.category }}\n*Priority:* {{ $json.priority }}\n*Notes:* {{ $json.internal_notes }}"
+            }
+          ]
+        }
+      },
+      "position": [460, 300]
+    },
+    {
+      "id": "send-slack",
+      "name": "Post to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MOCK_SLACK_URL }}/api/chat.postMessage",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {"name": "channel", "value": "#enterprise-oncall"},
+            {"name": "text", "value": "={{ $json.slack_text }}"}
+          ]
+        }
+      },
+      "position": [680, 300]
+    }
+  ],
+  "connections": {
+    "Escalation Webhook": {"main": [[{"node": "Format Slack Alert", "type": "main", "index": 0}]]},
+    "Format Slack Alert": {"main": [[{"node": "Post to Slack", "type": "main", "index": 0}]]}
+  },
+  "active": true,
+  "settings": {}
+}

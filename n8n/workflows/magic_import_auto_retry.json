@@ -1,0 +1,68 @@
+{
+  "name": "Magic Import Auto-Retry",
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "name": "Triage Auto-Resolve Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "auto-resolve",
+        "responseMode": "onReceived"
+      },
+      "position": [240, 300]
+    },
+    {
+      "id": "check-routing",
+      "name": "Is Auto-Resolve?",
+      "type": "n8n-nodes-base.if",
+      "parameters": {
+        "conditions": {
+          "string": [{"value1": "={{ $json.routing }}", "operation": "equal", "value2": "auto_resolve"}]
+        }
+      },
+      "position": [460, 300]
+    },
+    {
+      "id": "send-retry-reply",
+      "name": "Send Retry Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MOCK_ZENDESK_URL }}/api/v2/tickets/{{ $json.ticket_id }}/reply",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {"name": "body", "value": "={{ $json.draft_response }}"},
+            {"name": "public", "value": "true"}
+          ]
+        }
+      },
+      "position": [680, 200]
+    },
+    {
+      "id": "log-auto-resolve",
+      "name": "Log to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MOCK_SLACK_URL }}/api/chat.postMessage",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {"name": "channel", "value": "#support-ops"},
+            {"name": "text", "value": "=✅ Auto-resolved: {{ $json.ticket_id }} — Magic Import retry. No agent needed."}
+          ]
+        }
+      },
+      "position": [900, 200]
+    }
+  ],
+  "connections": {
+    "Triage Auto-Resolve Webhook": {"main": [[{"node": "Is Auto-Resolve?", "type": "main", "index": 0}]]},
+    "Is Auto-Resolve?": {"main": [[{"node": "Send Retry Message", "type": "main", "index": 0}], []]},
+    "Send Retry Message": {"main": [[{"node": "Log to Slack", "type": "main", "index": 0}]]}
+  },
+  "active": true,
+  "settings": {}
+}

@@ -1,0 +1,67 @@
+{
+  "id": null,
+  "uid": "churn-risk",
+  "title": "Churn Risk Radar",
+  "tags": ["canvasly", "churn"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "1m",
+  "time": {"from": "now-7d", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "title": "🔴 Accounts with Multiple Complaints (7 days)",
+      "type": "table",
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 10},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT account_name as \"Account\", COUNT(*) as \"Tickets\", MAX(account_seat_count) as \"Seats\", MAX(account_arr) as \"ARR ($)\", ROUND(AVG(csat_score)::numeric, 1) as \"Avg CSAT\", MAX(account_tier) as \"Tier\", STRING_AGG(DISTINCT category, ', ') as \"Categories\" FROM tickets WHERE is_enterprise = true AND created_at > now() - interval '7 days' AND account_name IS NOT NULL GROUP BY account_name HAVING COUNT(*) >= 2 ORDER BY COUNT(*) DESC, AVG(csat_score) ASC",
+        "format": "table"
+      }],
+      "options": {"sortBy": [{"displayName": "Tickets", "desc": true}]},
+      "fieldConfig": {
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "ARR ($)"}, "properties": [{"id": "unit", "value": "currencyUSD"}]},
+          {"matcher": {"id": "byName", "options": "Avg CSAT"}, "properties": [{"id": "thresholds", "value": {"steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 3}, {"color": "green", "value": 4}]}}, {"id": "custom.displayMode", "value": "color-background"}]}
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "title": "DataForge — Cancellation Account",
+      "description": "T-4815 (412 min FRT overnight) → T-4828 (cancellation request). Live account timeline.",
+      "type": "table",
+      "gridPos": {"x": 0, "y": 10, "w": 12, "h": 8},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT ticket_id, created_at::date as \"Date\", category, priority_assigned as \"Priority\", first_response_min as \"FRT (min)\", csat_score as \"CSAT\", COALESCE(triage_routing, 'pending') as \"Routing\" FROM tickets WHERE account_name = 'DataForge' ORDER BY created_at ASC",
+        "format": "table"
+      }]
+    },
+    {
+      "id": 3,
+      "title": "Meridian Health — Active Churn Risk",
+      "description": "T-4804 and T-4824: two Magic Import Quality complaints, second threatening Miro switch.",
+      "type": "table",
+      "gridPos": {"x": 12, "y": 10, "w": 12, "h": 8},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT ticket_id, created_at::date as \"Date\", category, priority_assigned as \"Priority\", first_response_min as \"FRT (min)\", csat_score as \"CSAT\", COALESCE(triage_routing, 'pending') as \"Routing\" FROM tickets WHERE account_name = 'Meridian Health' ORDER BY created_at ASC",
+        "format": "table"
+      }]
+    },
+    {
+      "id": 4,
+      "title": "CSAT Score by Enterprise Account (7 days)",
+      "type": "barchart",
+      "gridPos": {"x": 0, "y": 18, "w": 24, "h": 8},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT account_name as \"Account\", ROUND(AVG(csat_score)::numeric, 2) as \"Avg CSAT\" FROM tickets WHERE is_enterprise = true AND csat_score IS NOT NULL AND created_at > now() - interval '7 days' AND account_name IS NOT NULL GROUP BY account_name ORDER BY 2 ASC",
+        "format": "table"
+      }],
+      "fieldConfig": {"defaults": {"thresholds": {"steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 3}, {"color": "green", "value": 4}]}, "custom": {"displayMode": "color-background"}}}
+    }
+  ]
+}

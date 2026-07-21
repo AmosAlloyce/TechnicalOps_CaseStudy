@@ -1,0 +1,122 @@
+{
+  "id": null,
+  "uid": "queue-health",
+  "title": "Queue Health",
+  "tags": ["canvasly", "support"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-24h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "title": "Total Tickets (24h)",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT COUNT(*) as value FROM tickets WHERE created_at > now() - interval '24 hours'",
+        "format": "table"
+      }],
+      "options": {"colorMode": "background", "graphMode": "none"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "blue", "value": null}]}}}
+    },
+    {
+      "id": 2,
+      "title": "Enterprise Tickets (24h)",
+      "type": "stat",
+      "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT COUNT(*) as value FROM tickets WHERE created_at > now() - interval '24 hours' AND is_enterprise = true",
+        "format": "table"
+      }],
+      "options": {"colorMode": "background"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "orange", "value": null}]}}}
+    },
+    {
+      "id": 3,
+      "title": "Auto-Resolved (24h)",
+      "type": "stat",
+      "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT COUNT(*) as value FROM tickets WHERE created_at > now() - interval '24 hours' AND auto_resolved = true",
+        "format": "table"
+      }],
+      "options": {"colorMode": "background"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}]}}}
+    },
+    {
+      "id": 4,
+      "title": "Escalations (24h)",
+      "type": "stat",
+      "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT COUNT(*) as value FROM tickets WHERE created_at > now() - interval '24 hours' AND escalation_paged = true",
+        "format": "table"
+      }],
+      "options": {"colorMode": "background"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "red", "value": null}]}}}
+    },
+    {
+      "id": 5,
+      "title": "FRT Median (minutes)",
+      "type": "stat",
+      "gridPos": {"x": 16, "y": 0, "w": 4, "h": 4},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY first_response_min) as value FROM tickets WHERE first_response_min IS NOT NULL AND created_at > now() - interval '24 hours'",
+        "format": "table"
+      }],
+      "options": {"colorMode": "background"},
+      "fieldConfig": {"defaults": {"unit": "m", "color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 10}, {"color": "red", "value": 30}]}}}
+    },
+    {
+      "id": 6,
+      "title": "Tickets by Channel (24h)",
+      "type": "piechart",
+      "gridPos": {"x": 0, "y": 4, "w": 8, "h": 8},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT channel as \"Channel\", COUNT(*) as \"Count\" FROM tickets WHERE created_at > now() - interval '24 hours' GROUP BY channel ORDER BY 2 DESC",
+        "format": "table"
+      }]
+    },
+    {
+      "id": 7,
+      "title": "Tickets by Category (24h)",
+      "type": "barchart",
+      "gridPos": {"x": 8, "y": 4, "w": 16, "h": 8},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT category as \"Category\", COUNT(*) as \"Count\" FROM tickets WHERE created_at > now() - interval '24 hours' GROUP BY category ORDER BY 2 DESC LIMIT 10",
+        "format": "table"
+      }]
+    },
+    {
+      "id": 8,
+      "title": "Routing Decisions (24h)",
+      "type": "piechart",
+      "gridPos": {"x": 0, "y": 12, "w": 8, "h": 8},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT COALESCE(triage_routing, 'pending') as \"Routing\", COUNT(*) as \"Count\" FROM tickets WHERE created_at > now() - interval '24 hours' GROUP BY 1 ORDER BY 2 DESC",
+        "format": "table"
+      }]
+    },
+    {
+      "id": 9,
+      "title": "FRT Distribution (minutes)",
+      "type": "histogram",
+      "gridPos": {"x": 8, "y": 12, "w": 16, "h": 8},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT first_response_min as \"FRT (min)\" FROM tickets WHERE first_response_min IS NOT NULL AND created_at > now() - interval '7 days' ORDER BY 1",
+        "format": "table"
+      }]
+    }
+  ]
+}

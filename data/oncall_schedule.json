@@ -1,0 +1,16 @@
+[
+  {
+    "week": 1,
+    "agents": [
+      {"name": "Maria S.",  "slack_id": "U001", "email": "maria@canvasly.io"},
+      {"name": "Priya M.",  "slack_id": "U002", "email": "priya@canvasly.io"}
+    ]
+  },
+  {
+    "week": 2,
+    "agents": [
+      {"name": "Devon R.",  "slack_id": "U003", "email": "devon@canvasly.io"},
+      {"name": "James K.",  "slack_id": "U004", "email": "james@canvasly.io"}
+    ]
+  }
+]

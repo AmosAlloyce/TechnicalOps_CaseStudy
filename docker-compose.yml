@@ -1,0 +1,350 @@
+version: "3.9"
+
+services:
+
+  # ─────────────────────────────────────────────
+  # Postgres — shared state store
+  # ─────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: canvasly_postgres
+    environment:
+      POSTGRES_DB: canvasly
+      POSTGRES_USER: canvasly
+      POSTGRES_PASSWORD: canvasly_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./data/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U canvasly"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─────────────────────────────────────────────
+  # Ollama — local LLM offline fallback
+  # Only used when LLM_PROVIDER=ollama or GROQ_API_KEY is absent
+  # ─────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: canvasly_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    profiles:
+      - offline
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # Pull phi3-mini model on first start (offline profile only)
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: canvasly_ollama_pull
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: ["ollama", "pull", "phi3-mini"]
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    profiles:
+      - offline
+
+  # ─────────────────────────────────────────────
+  # Mock external APIs (Zendesk, Salesforce, Canvasly admin)
+  # ─────────────────────────────────────────────
+  mock-apis:
+    build:
+      context: ./mocks
+      dockerfile: Dockerfile
+    container_name: canvasly_mocks
+    ports:
+      - "8001:8001"   # mock Zendesk
+      - "8002:8002"   # mock Salesforce
+      - "8003:8003"   # mock Canvasly admin portal
+      - "8004:8004"   # mock Slack notifications
+    environment:
+      - SEED_DATA_PATH=/app/data/canvasly_tickets.csv
+    volumes:
+      - ./data:/app/data:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8001/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─────────────────────────────────────────────
+  # Lambda services (local simulation via uvicorn)
+  # In production these run as AWS Lambda functions
+  # ─────────────────────────────────────────────
+  webhook-receiver:
+    build:
+      context: .
+      dockerfile: lambdas/webhook_receiver/Dockerfile
+    container_name: canvasly_webhook_receiver
+    ports:
+      - "8010:8010"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=canvasly
+      - DB_USER=canvasly
+      - DB_PASSWORD=canvasly_dev
+      - EVENTBRIDGE_MODE=local
+      - LOCAL_EVENT_BUS_URL=http://event-bus:8020/events
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mock-apis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8010/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  enrichment:
+    build:
+      context: .
+      dockerfile: lambdas/enrichment/Dockerfile
+    container_name: canvasly_enrichment
+    ports:
+      - "8011:8011"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=canvasly
+      - DB_USER=canvasly
+      - DB_PASSWORD=canvasly_dev
+      - EVENTBRIDGE_MODE=local
+      - LOCAL_EVENT_BUS_URL=http://event-bus:8020/events
+      - SALESFORCE_API_URL=http://mock-apis:8002
+      - CANVASLY_ADMIN_API_URL=http://mock-apis:8003
+      - ENTERPRISE_SEAT_THRESHOLD=100
+      - ENTERPRISE_ARR_THRESHOLD=50000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mock-apis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8011/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  triage-agent:
+    build:
+      context: .
+      dockerfile: lambdas/triage_agent/Dockerfile
+    container_name: canvasly_triage_agent
+    ports:
+      - "8012:8012"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=canvasly
+      - DB_USER=canvasly
+      - DB_PASSWORD=canvasly_dev
+      - EVENTBRIDGE_MODE=local
+      - LOCAL_EVENT_BUS_URL=http://event-bus:8020/events
+      - LLM_PROVIDER=${LLM_PROVIDER:-groq}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL=${GROQ_MODEL:-llama3-8b-8192}
+      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-phi3-mini}
+      - MOCK_ZENDESK_URL=http://mock-apis:8001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mock-apis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8012/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  escalation:
+    build:
+      context: .
+      dockerfile: lambdas/escalation/Dockerfile
+    container_name: canvasly_escalation
+    ports:
+      - "8013:8013"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=canvasly
+      - DB_USER=canvasly
+      - DB_PASSWORD=canvasly_dev
+      - EVENTBRIDGE_MODE=local
+      - LOCAL_EVENT_BUS_URL=http://event-bus:8020/events
+      - MOCK_SLACK_URL=http://mock-apis:8004
+      - ONCALL_SCHEDULE_PATH=/app/data/oncall_schedule.json
+      - BUSINESS_HOURS_START=8
+      - BUSINESS_HOURS_END=18
+      - BUSINESS_HOURS_TZ=America/New_York
+      - REPAGE_INTERVAL_MIN=30
+    volumes:
+      - ./data:/app/data:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mock-apis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8013/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # ─────────────────────────────────────────────
+  # Local event bus (simulates EventBridge locally)
+  # ─────────────────────────────────────────────
+  event-bus:
+    build:
+      context: ./mocks/event_bus
+      dockerfile: Dockerfile
+    container_name: canvasly_event_bus
+    ports:
+      - "8020:8020"
+    environment:
+      - ENRICHMENT_URL=http://enrichment:8011/invoke
+      - TRIAGE_URL=http://triage-agent:8012/invoke
+      - ESCALATION_URL=http://escalation:8013/invoke
+    depends_on:
+      enrichment:
+        condition: service_healthy
+      triage-agent:
+        condition: service_healthy
+      escalation:
+        condition: service_healthy
+
+  # ─────────────────────────────────────────────
+  # Seed service — runs once to populate DB
+  # ─────────────────────────────────────────────
+  seed:
+    build:
+      context: .
+      dockerfile: data/Dockerfile.seed
+    container_name: canvasly_seed
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=canvasly
+      - DB_USER=canvasly
+      - DB_PASSWORD=canvasly_dev
+      - WEBHOOK_URL=http://webhook-receiver:8010/webhook/ticket
+    volumes:
+      - ./data:/app/data:ro
+    depends_on:
+      webhook-receiver:
+        condition: service_healthy
+      event-bus:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # ─────────────────────────────────────────────
+  # n8n — workflow automation
+  # ─────────────────────────────────────────────
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: canvasly_n8n
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=canvasly_dev
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=canvasly
+      - DB_POSTGRESDB_USER=canvasly
+      - DB_POSTGRESDB_PASSWORD=canvasly_dev
+      - DB_POSTGRESDB_SCHEMA=n8n
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - WEBHOOK_URL=http://localhost:5678
+      - ESCALATION_WEBHOOK_URL=http://escalation:8013
+      - MOCK_SLACK_URL=http://mock-apis:8004
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - OLLAMA_HOST=http://ollama:11434
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/home/node/.n8n/workflows:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:5678/healthz', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # ─────────────────────────────────────────────
+  # Grafana — ops dashboard
+  # ─────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    container_name: canvasly_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=canvasly_dev
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/dashboards/queue_health.json
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/etc/grafana/dashboards
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # ─────────────────────────────────────────────
+  # Streamlit Scale Simulator
+  # ─────────────────────────────────────────────
+  scale-simulator:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: canvasly_scale_sim
+    ports:
+      - "8502:8502"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=canvasly
+      - DB_USER=canvasly
+      - DB_PASSWORD=canvasly_dev
+      - PROJECTIONS_PATH=/app/data/volume_projections.md
+    volumes:
+      - ./data:/app/data:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  ollama_data:
+  n8n_data:
+  grafana_data:

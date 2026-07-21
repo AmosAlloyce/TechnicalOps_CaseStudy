@@ -1,0 +1,62 @@
+{
+  "name": "CSAT Anomaly Alert",
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "name": "CSAT Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "csat-response",
+        "responseMode": "onReceived"
+      },
+      "position": [240, 300]
+    },
+    {
+      "id": "check-csat",
+      "name": "CSAT <= 2?",
+      "type": "n8n-nodes-base.if",
+      "parameters": {
+        "conditions": {
+          "number": [{"value1": "={{ $json.csat_score }}", "operation": "smallerEqual", "value2": 2}]
+        }
+      },
+      "position": [460, 300]
+    },
+    {
+      "id": "check-enterprise",
+      "name": "Enterprise Account?",
+      "type": "n8n-nodes-base.if",
+      "parameters": {
+        "conditions": {
+          "boolean": [{"value1": "={{ $json.is_enterprise }}", "operation": "equal", "value2": true}]
+        }
+      },
+      "position": [680, 200]
+    },
+    {
+      "id": "alert-account-owner",
+      "name": "Alert Account Owner",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MOCK_SLACK_URL }}/api/chat.postMessage",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {"name": "channel", "value": "#customer-health"},
+            {"name": "text", "value": "=:sos: *CSAT ANOMALY* — Enterprise ticket {{ $json.ticket_id }}\n*Account:* {{ $json.account_name }} ({{ $json.account_seat_count }} seats)\n*CSAT:* {{ $json.csat_score }}/5\n*Account Owner:* {{ $json.account_owner }}\nAction: follow up with customer within 2 hours."}
+          ]
+        }
+      },
+      "position": [900, 100]
+    }
+  ],
+  "connections": {
+    "CSAT Webhook": {"main": [[{"node": "CSAT <= 2?", "type": "main", "index": 0}]]},
+    "CSAT <= 2?": {"main": [[{"node": "Enterprise Account?", "type": "main", "index": 0}], []]},
+    "Enterprise Account?": {"main": [[{"node": "Alert Account Owner", "type": "main", "index": 0}], []]}
+  },
+  "active": true,
+  "settings": {}
+}

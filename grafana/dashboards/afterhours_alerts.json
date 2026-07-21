@@ -1,0 +1,66 @@
+{
+  "id": null,
+  "uid": "afterhours-alerts",
+  "title": "After-Hours Alert Log",
+  "tags": ["canvasly", "escalation"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-7d", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "title": "Total Pages (7 days)",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT COUNT(*) as value FROM escalation_log WHERE paged_at > now() - interval '7 days'",
+        "format": "table"
+      }],
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "blue", "value": null}]}}}
+    },
+    {
+      "id": 2,
+      "title": "Unacknowledged",
+      "type": "stat",
+      "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT COUNT(*) as value FROM escalation_log WHERE acked_at IS NULL AND paged_at > now() - interval '24 hours'",
+        "format": "table"
+      }],
+      "options": {"colorMode": "background"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}}
+    },
+    {
+      "id": 3,
+      "title": "Avg Time to Acknowledge (minutes)",
+      "type": "stat",
+      "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT ROUND(AVG(EXTRACT(EPOCH FROM (acked_at - paged_at))/60)::numeric, 1) as value FROM escalation_log WHERE acked_at IS NOT NULL AND paged_at > now() - interval '7 days'",
+        "format": "table"
+      }],
+      "fieldConfig": {"defaults": {"unit": "m", "color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 15}, {"color": "red", "value": 30}]}}}
+    },
+    {
+      "id": 4,
+      "title": "Escalation Log",
+      "type": "table",
+      "gridPos": {"x": 0, "y": 4, "w": 24, "h": 12},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT el.ticket_id, t.account_name as \"Account\", t.account_seat_count as \"Seats\", t.category as \"Issue\", el.paged_at as \"Paged At\", el.on_call_agent as \"On-Call\", el.acked_at as \"Acked At\", CASE WHEN el.acked_at IS NOT NULL THEN ROUND(EXTRACT(EPOCH FROM (el.acked_at - el.paged_at))/60::numeric, 1)::text || ' min' ELSE '⚠️ UNACKED' END as \"Response Time\" FROM escalation_log el LEFT JOIN tickets t ON t.ticket_id = el.ticket_id ORDER BY el.paged_at DESC LIMIT 50",
+        "format": "table"
+      }],
+      "fieldConfig": {
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "Response Time"}, "properties": [{"id": "custom.displayMode", "value": "color-background"}]}
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "name": "Churn Risk Digest",
+  "nodes": [
+    {
+      "id": "schedule",
+      "name": "Daily Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "parameters": {
+        "rule": {"interval": [{"field": "cronExpression", "expression": "0 9 * * 1-5"}]}
+      },
+      "position": [240, 300]
+    },
+    {
+      "id": "query-accounts",
+      "name": "Query At-Risk Accounts",
+      "type": "n8n-nodes-base.postgres",
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT account_name, COUNT(*) as complaint_count, ROUND(AVG(csat_score)::numeric,1) as avg_csat, MAX(account_arr) as arr, MAX(account_seat_count) as seats FROM tickets WHERE is_enterprise = true AND created_at > now() - interval '7 days' AND account_name IS NOT NULL GROUP BY account_name HAVING COUNT(*) >= 2 ORDER BY complaint_count DESC, avg_csat ASC"
+      },
+      "position": [460, 300]
+    },
+    {
+      "id": "check-results",
+      "name": "Any At-Risk Accounts?",
+      "type": "n8n-nodes-base.if",
+      "parameters": {
+        "conditions": {
+          "number": [{"value1": "={{ $items().length }}", "operation": "larger", "value2": 0}]
+        }
+      },
+      "position": [680, 300]
+    },
+    {
+      "id": "build-summary",
+      "name": "Build Digest Text",
+      "type": "n8n-nodes-base.code",
+      "parameters": {
+        "jsCode": "const accounts = items.map(i => i.json);\nconst lines = accounts.map(a => `• *${a.account_name}* — ${a.complaint_count} tickets, CSAT ${a.avg_csat}, ${a.seats} seats, $${Number(a.arr).toLocaleString()} ARR`);\nconst text = `:warning: *Daily Churn Risk Digest*\\n${lines.join('\\n')}\\n\\nAction required: review these accounts in Grafana and consider proactive outreach.`;\nreturn [{json: {text}}];"
+      },
+      "position": [900, 200]
+    },
+    {
+      "id": "post-digest",
+      "name": "Post to Customer Health Channel",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MOCK_SLACK_URL }}/api/chat.postMessage",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {"name": "channel", "value": "#customer-health"},
+            {"name": "text", "value": "={{ $json.text }}"}
+          ]
+        }
+      },
+      "position": [1120, 200]
+    }
+  ],
+  "connections": {
+    "Daily Schedule": {"main": [[{"node": "Query At-Risk Accounts", "type": "main", "index": 0}]]},
+    "Query At-Risk Accounts": {"main": [[{"node": "Any At-Risk Accounts?", "type": "main", "index": 0}]]},
+    "Any At-Risk Accounts?": {"main": [[{"node": "Build Digest Text", "type": "main", "index": 0}], []]},
+    "Build Digest Text": {"main": [[{"node": "Post to Customer Health Channel", "type": "main", "index": 0}]]}
+  },
+  "active": true,
+  "settings": {}
+}

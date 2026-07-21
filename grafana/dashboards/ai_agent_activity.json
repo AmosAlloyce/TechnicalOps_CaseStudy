@@ -1,0 +1,96 @@
+{
+  "id": null,
+  "uid": "ai-agent-activity",
+  "title": "AI Agent Activity",
+  "tags": ["canvasly", "ai"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-24h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "title": "LLM Provider",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT llm_provider_used as value FROM tickets WHERE llm_provider_used IS NOT NULL ORDER BY updated_at DESC LIMIT 1",
+        "format": "table"
+      }],
+      "options": {"colorMode": "background", "textMode": "value"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "blue", "value": null}]}}}
+    },
+    {
+      "id": 2,
+      "title": "Auto-Resolved Today",
+      "type": "stat",
+      "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT COUNT(*) as value FROM tickets WHERE auto_resolved = true AND created_at > now() - interval '24 hours'",
+        "format": "table"
+      }],
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}]}}}
+    },
+    {
+      "id": 3,
+      "title": "Fallback to Rules (24h)",
+      "type": "stat",
+      "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT COUNT(*) as value FROM agent_decisions WHERE fallback_used = true AND decided_at > now() - interval '24 hours'",
+        "format": "table"
+      }],
+      "options": {"colorMode": "background"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 3}, {"color": "red", "value": 10}]}}}
+    },
+    {
+      "id": 4,
+      "title": "Draft Responses Awaiting Review",
+      "type": "stat",
+      "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT COUNT(*) as value FROM tickets WHERE draft_response IS NOT NULL AND auto_resolved = false AND triage_routing = 'standard_queue' AND created_at > now() - interval '24 hours'",
+        "format": "table"
+      }],
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "blue", "value": null}]}}}
+    },
+    {
+      "id": 5,
+      "title": "Triage Decision Log (24h)",
+      "type": "table",
+      "gridPos": {"x": 0, "y": 4, "w": 24, "h": 10},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT ticket_id, created_at, category, COALESCE(triage_routing, 'pending') as routing, llm_provider_used as llm, CASE WHEN auto_resolved THEN '✓ auto-resolved' ELSE '' END as status, LEFT(triage_reasoning, 80) as reasoning FROM tickets WHERE created_at > now() - interval '24 hours' ORDER BY created_at DESC LIMIT 50",
+        "format": "table"
+      }]
+    },
+    {
+      "id": 6,
+      "title": "LLM Provider Usage Over Time",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 14, "w": 12, "h": 8},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT date_trunc('hour', decided_at) as time, llm_provider as provider, COUNT(*) as decisions FROM agent_decisions WHERE decided_at > now() - interval '7 days' GROUP BY 1, 2 ORDER BY 1",
+        "format": "table"
+      }]
+    },
+    {
+      "id": 7,
+      "title": "Fallback Rate Over Time",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 14, "w": 12, "h": 8},
+      "datasource": {"uid": "canvasly-postgres"},
+      "targets": [{
+        "rawSql": "SELECT date_trunc('hour', decided_at) as time, COUNT(*) FILTER (WHERE fallback_used = true) as fallbacks, COUNT(*) as total FROM agent_decisions WHERE decided_at > now() - interval '7 days' GROUP BY 1 ORDER BY 1",
+        "format": "table"
+      }]
+    }
+  ]
+}

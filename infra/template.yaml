@@ -1,0 +1,281 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Description: |
+  Canvasly TechOps — Serverless support operations platform.
+  Lambda + API Gateway + EventBridge + Aurora Serverless v2 + SQS DLQ.
+
+# ─────────────────────────────────────────────
+# Global defaults
+# ─────────────────────────────────────────────
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 30
+    MemorySize: 256
+    Environment:
+      Variables:
+        DB_HOST:        !GetAtt AuroraCluster.Endpoint.Address
+        DB_PORT:        "5432"
+        DB_NAME:        canvasly
+        DB_USER:        !Sub "{{resolve:ssm:/canvasly/db/user}}"
+        DB_PASSWORD:    !Sub "{{resolve:ssm:/canvasly/db/password}}"
+        LLM_PROVIDER:   !Sub "{{resolve:ssm:/canvasly/llm/provider}}"
+        GROQ_API_KEY:   !Sub "{{resolve:ssm:/canvasly/llm/groq_api_key}}"
+        EVENTBRIDGE_MODE: aws
+        EVENTBRIDGE_BUS_NAME: !Ref TicketEventBus
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+  LLMProvider:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /canvasly/llm/provider
+  GroqApiKey:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /canvasly/llm/groq_api_key
+
+# ─────────────────────────────────────────────
+# EventBridge
+# ─────────────────────────────────────────────
+Resources:
+
+  TicketEventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: canvasly-tickets
+
+  # Dead-letter queue for failed EventBridge deliveries
+  TicketDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: canvasly-ticket-dlq
+      MessageRetentionPeriod: 1209600  # 14 days
+
+  # ─────────────────────────────────────────────
+  # Lambda: webhook_receiver
+  # Unreserved concurrency — absorbs any burst
+  # ─────────────────────────────────────────────
+  WebhookReceiverFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: canvasly-webhook-receiver
+      CodeUri: lambdas/webhook_receiver/
+      Handler: handler.handler
+      # No ReservedConcurrentExecutions — unreserved, handles all burst
+      Events:
+        WebhookApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CanvaslyApi
+            Path: /webhook/ticket
+            Method: POST
+      Policies:
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref TicketEventBus
+
+  # ─────────────────────────────────────────────
+  # Lambda: enrichment
+  # Triggered by EventBridge TicketCreated rule
+  # ─────────────────────────────────────────────
+  EnrichmentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: canvasly-enrichment
+      CodeUri: lambdas/enrichment/
+      Handler: handler.handler
+      Environment:
+        Variables:
+          SALESFORCE_API_URL:     !Sub "{{resolve:ssm:/canvasly/salesforce/api_url}}"
+          CANVASLY_ADMIN_API_URL: !Sub "{{resolve:ssm:/canvasly/admin/api_url}}"
+          ENTERPRISE_SEAT_THRESHOLD: "100"
+          ENTERPRISE_ARR_THRESHOLD:  "50000"
+      Policies:
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref TicketEventBus
+        - VPCAccessPolicy: {}
+
+  EnrichmentEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: !Ref TicketEventBus
+      EventPattern:
+        source: ["canvasly.webhook_receiver"]
+        detail-type: ["TicketCreated"]
+      Targets:
+        - Id: EnrichmentTarget
+          Arn: !GetAtt EnrichmentFunction.Arn
+          DeadLetterConfig:
+            Arn: !GetAtt TicketDLQ.Arn
+
+  EnrichmentLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref EnrichmentFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt EnrichmentEventRule.Arn
+
+  # ─────────────────────────────────────────────
+  # Lambda: triage_agent
+  # Reserved concurrency = 10 in dev (protects Groq free tier)
+  # Remove limit in production with paid LLM provider
+  # ─────────────────────────────────────────────
+  TriageAgentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: canvasly-triage-agent
+      CodeUri: lambdas/triage_agent/
+      Handler: handler.handler
+      Timeout: 60  # LLM calls can take up to 30s
+      MemorySize: 512
+      # Dev: protect Groq free tier (30 req/min).
+      # Production: remove this line when using Bedrock or OpenAI.
+      ReservedConcurrentExecutions: !If [IsDev, 10, !Ref AWS::NoValue]
+      Environment:
+        Variables:
+          MOCK_ZENDESK_URL: !Sub "{{resolve:ssm:/canvasly/zendesk/api_url}}"
+      Policies:
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref TicketEventBus
+
+  TriageAgentEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: !Ref TicketEventBus
+      EventPattern:
+        source: ["canvasly.enrichment"]
+        detail-type: ["TicketEnriched"]
+      Targets:
+        - Id: TriageAgentTarget
+          Arn: !GetAtt TriageAgentFunction.Arn
+          DeadLetterConfig:
+            Arn: !GetAtt TicketDLQ.Arn
+
+  TriageAgentLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref TriageAgentFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt TriageAgentEventRule.Arn
+
+  # ─────────────────────────────────────────────
+  # Lambda: escalation
+  # Unreserved — low volume by design
+  # ─────────────────────────────────────────────
+  EscalationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: canvasly-escalation
+      CodeUri: lambdas/escalation/
+      Handler: handler.handler
+      Environment:
+        Variables:
+          MOCK_SLACK_URL:        !Sub "{{resolve:ssm:/canvasly/slack/webhook_url}}"
+          BUSINESS_HOURS_START:  "8"
+          BUSINESS_HOURS_END:    "18"
+          BUSINESS_HOURS_TZ:     "America/New_York"
+          REPAGE_INTERVAL_MIN:   "30"
+
+  EscalationEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: !Ref TicketEventBus
+      EventPattern:
+        source: ["canvasly.triage_agent"]
+        detail-type: ["TicketTriaged"]
+        detail:
+          routing: ["escalate"]
+      Targets:
+        - Id: EscalationTarget
+          Arn: !GetAtt EscalationFunction.Arn
+
+  EscalationLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref EscalationFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt EscalationEventRule.Arn
+
+  # ─────────────────────────────────────────────
+  # API Gateway
+  # ─────────────────────────────────────────────
+  CanvaslyApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: canvasly-techops-api
+      StageName: !Ref Environment
+
+  # ─────────────────────────────────────────────
+  # Aurora Serverless v2
+  # Scales 0.5–16 ACU automatically. ~$0 idle.
+  # ─────────────────────────────────────────────
+  AuroraSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Canvasly Aurora subnet group
+      SubnetIds: !Split [",", !Sub "{{resolve:ssm:/canvasly/vpc/private_subnet_ids}}"]
+
+  AuroraCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-postgresql
+      EngineMode: provisioned
+      EngineVersion: "15.4"
+      DatabaseName: canvasly
+      MasterUsername: !Sub "{{resolve:ssm:/canvasly/db/user}}"
+      MasterUserPassword: !Sub "{{resolve:ssm:/canvasly/db/password}}"
+      DBSubnetGroupName: !Ref AuroraSubnetGroup
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: 0.5   # ~$0 when idle
+        MaxCapacity: 16    # handles 10k+ concurrent connections
+      EnableCloudwatchLogsExports:
+        - postgresql
+      DeletionProtection: !If [IsProd, true, false]
+
+  AuroraInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref AuroraCluster
+      DBInstanceClass: db.serverless
+      Engine: aurora-postgresql
+      PubliclyAccessible: false
+
+# ─────────────────────────────────────────────
+# Conditions
+# ─────────────────────────────────────────────
+Conditions:
+  IsDev:  !Equals [!Ref Environment, dev]
+  IsProd: !Equals [!Ref Environment, prod]
+
+# ─────────────────────────────────────────────
+# Outputs
+# ─────────────────────────────────────────────
+Outputs:
+  WebhookEndpoint:
+    Description: Zendesk webhook endpoint URL
+    Value: !Sub "https://${CanvaslyApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/webhook/ticket"
+    Export:
+      Name: CanvaslyWebhookEndpoint
+
+  AuroraEndpoint:
+    Description: Aurora cluster endpoint
+    Value: !GetAtt AuroraCluster.Endpoint.Address
+    Export:
+      Name: CanvaslyAuroraEndpoint
+
+  EventBusArn:
+    Description: EventBridge bus ARN
+    Value: !GetAtt TicketEventBus.Arn
+    Export:
+      Name: CanvaslyEventBusArn
+
+  DLQUrl:
+    Description: Dead-letter queue URL
+    Value: !Ref TicketDLQ
+    Export:
+      Name: CanvaslyDLQUrl
