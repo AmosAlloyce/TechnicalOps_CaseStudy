@@ -21,7 +21,10 @@ DELAY_SEC   = float(os.environ.get("SEED_DELAY_SEC", "0.5"))
 
 
 def wait_for_service(url: str, retries: int = 20, delay: float = 3.0) -> None:
-    health_url = url.rsplit("/", 1)[0] + "/health"
+    # Derive health endpoint from base URL (strip path entirely)
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    health_url = f"{parsed.scheme}://{parsed.netloc}/health"
     for i in range(retries):
         try:
             resp = httpx.get(health_url, timeout=5)

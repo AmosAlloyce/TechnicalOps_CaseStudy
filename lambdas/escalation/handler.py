@@ -44,6 +44,8 @@ BUSINESS_HOURS_START = int(os.environ.get("BUSINESS_HOURS_START", "8"))
 BUSINESS_HOURS_END   = int(os.environ.get("BUSINESS_HOURS_END", "18"))
 BUSINESS_HOURS_TZ    = os.environ.get("BUSINESS_HOURS_TZ", "America/New_York")
 REPAGE_INTERVAL_MIN  = int(os.environ.get("REPAGE_INTERVAL_MIN", "30"))
+# Set FORCE_AFTER_HOURS=true to always trigger escalation (useful for demos)
+FORCE_AFTER_HOURS    = os.environ.get("FORCE_AFTER_HOURS", "false").lower() == "true"
 
 _pool: psycopg2.pool.SimpleConnectionPool | None = None
 
@@ -79,9 +81,12 @@ def get_conn():
 
 def is_outside_business_hours(dt: datetime | None = None) -> bool:
     """
-    Returns True if the given time (or now) is outside business hours.
+    Returns True if current time is outside business hours.
+    Set FORCE_AFTER_HOURS=true to always return True (demo mode).
     Business hours: BUSINESS_HOURS_START–BUSINESS_HOURS_END in BUSINESS_HOURS_TZ.
     """
+    if FORCE_AFTER_HOURS:
+        return True
     tz = ZoneInfo(BUSINESS_HOURS_TZ)
     now = (dt or datetime.now(timezone.utc)).astimezone(tz)
     # Also treat weekends as after-hours
@@ -200,17 +205,10 @@ def process_escalation(ticket: dict) -> dict:
     ticket_id    = ticket["ticket_id"]
     is_ent       = bool(ticket.get("is_enterprise", False))
     priority     = (ticket.get("priority") or "").lower()
-    created_str  = ticket.get("created_at", "")
 
-    # Parse created_at for accurate time check
-    created_dt = None
-    if created_str:
-        try:
-            created_dt = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
-        except ValueError:
-            pass
-
-    outside_hours = is_outside_business_hours(created_dt)
+    # Use current time — we want to know if the ticket is arriving OOH right now,
+    # not whether it was created OOH (seed data has historical daytime timestamps).
+    outside_hours = is_outside_business_hours()
 
     logger.info(
         "Escalation check: ticket=%s enterprise=%s priority=%s outside_hours=%s",

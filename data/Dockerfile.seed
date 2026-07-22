@@ -2,4 +2,6 @@ FROM python:3.12-slim
 WORKDIR /app
 RUN pip install --no-cache-dir httpx
 COPY data/seed.py ./data/seed.py
+COPY data/canvasly_tickets.csv ./data/canvasly_tickets.csv
+ENV SEED_DATA_PATH=/app/data/canvasly_tickets.csv
 CMD ["python", "data/seed.py"]

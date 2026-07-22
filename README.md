@@ -73,6 +73,9 @@ cp .env.example .env
 
 # Add your Groq API key to .env
 # Edit .env and set: GROQ_API_KEY=gsk_your_key_here
+
+# For demo mode: force escalation to always fire regardless of time of day
+# FORCE_AFTER_HOURS=true
 ```
 
 ### 2. Start the stack
@@ -90,7 +93,7 @@ This starts:
 - Grafana (`:3000`)
 - Streamlit Scale Simulator (`:8502`)
 
-On first start, the seed service automatically replays all 30 tickets through the full pipeline.
+On first start, the seed service automatically replays all 30 tickets through the full pipeline. The `n8n-import` service then imports all 4 workflows into n8n automatically.
 
 ### 3. Open the dashboards
 
@@ -102,7 +105,25 @@ On first start, the seed service automatically replays all 30 tickets through th
 | **Mock Slack log** | http://localhost:8004/api/notifications | — |
 | **Event log** | http://localhost:8020/events | — |
 
-### 4. Offline mode (no Groq key / no internet)
+### 4. Simulate specific scenarios (for demos / recording)
+
+```bash
+chmod +x simulate_scenarios.sh
+
+# Run all 5 scenarios interactively (with pauses between each)
+./simulate_scenarios.sh
+
+# Run a single scenario
+./simulate_scenarios.sh 1   # Magic Import auto-resolve
+./simulate_scenarios.sh 2   # Enterprise after-hours escalation
+./simulate_scenarios.sh 3   # Standard queue + AI draft response
+./simulate_scenarios.sh 4   # CSAT anomaly alert (via n8n)
+./simulate_scenarios.sh 5   # Churn risk account cluster (DataForge)
+```
+
+> **Scenario 2 tip:** Set `FORCE_AFTER_HOURS=true` in your `.env` so escalation fires regardless of the current time of day.
+
+### 5. Offline mode (no Groq key / no internet)
 
 ```bash
 # Start with Ollama profile to pull phi3-mini (~2.3GB)

@@ -105,6 +105,8 @@ services:
         condition: service_healthy
       mock-apis:
         condition: service_healthy
+      event-bus:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8010/health || exit 1"]
       interval: 5s
@@ -194,6 +196,7 @@ services:
       - BUSINESS_HOURS_END=18
       - BUSINESS_HOURS_TZ=America/New_York
       - REPAGE_INTERVAL_MIN=30
+      - FORCE_AFTER_HOURS=${FORCE_AFTER_HOURS:-false}
     volumes:
       - ./data:/app/data:ro
     depends_on:
@@ -228,6 +231,11 @@ services:
         condition: service_healthy
       escalation:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8020/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 
   # ─────────────────────────────────────────────
   # Seed service — runs once to populate DB
@@ -283,7 +291,6 @@ services:
       - OLLAMA_HOST=http://ollama:11434
     volumes:
       - n8n_data:/home/node/.n8n
-      - ./n8n/workflows:/home/node/.n8n/workflows:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -292,6 +299,34 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
+
+  # ─────────────────────────────────────────────
+  # n8n workflow importer — runs once after n8n is healthy
+  # Imports the 4 workflow JSON files via the n8n CLI
+  # ─────────────────────────────────────────────
+  n8n-import:
+    image: n8nio/n8n:latest
+    container_name: canvasly_n8n_import
+    entrypoint: ["/bin/sh", "/import-workflows.sh"]
+    environment:
+      - N8N_URL=http://n8n:5678
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=canvasly_dev
+      - WORKFLOWS_DIR=/workflows
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=canvasly
+      - DB_POSTGRESDB_USER=canvasly
+      - DB_POSTGRESDB_PASSWORD=canvasly_dev
+      - DB_POSTGRESDB_SCHEMA=n8n
+    volumes:
+      - ./n8n/workflows:/workflows:ro
+      - ./n8n/import-workflows.sh:/import-workflows.sh:ro
+    depends_on:
+      n8n:
+        condition: service_healthy
+    restart: "no"
 
   # ─────────────────────────────────────────────
   # Grafana — ops dashboard
