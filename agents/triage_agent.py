@@ -345,12 +345,12 @@ def build_graph(llm: BaseLLMClient) -> Any:
 
     graph.add_node("classify_issue",  make_classify_node(llm))
     graph.add_node("decide_routing",  make_routing_node(llm))
-    graph.add_node("draft_response",  make_draft_node(llm))
+    graph.add_node("write_draft",     make_draft_node(llm))
 
     graph.set_entry_point("classify_issue")
     graph.add_edge("classify_issue", "decide_routing")
-    graph.add_edge("decide_routing", "draft_response")
-    graph.add_edge("draft_response", END)
+    graph.add_edge("decide_routing", "write_draft")
+    graph.add_edge("write_draft", END)
 
     return graph.compile()
 

@@ -7,16 +7,16 @@
   "schemaVersion": 38,
   "version": 1,
   "refresh": "30s",
-  "time": {"from": "now-7d", "to": "now"},
+  "time": {"from": "now-365d", "to": "now"},
   "panels": [
     {
       "id": 1,
-      "title": "Total Pages (7 days)",
+      "title": "Total Pages",
       "type": "stat",
       "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
       "datasource": {"uid": "canvasly-postgres"},
       "targets": [{
-        "rawSql": "SELECT COUNT(*) as value FROM escalation_log WHERE paged_at > now() - interval '7 days'",
+        "rawSql": "SELECT COUNT(*) as value FROM escalation_log",
         "format": "table"
       }],
       "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "blue", "value": null}]}}}
@@ -28,7 +28,7 @@
       "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
       "datasource": {"uid": "canvasly-postgres"},
       "targets": [{
-        "rawSql": "SELECT COUNT(*) as value FROM escalation_log WHERE acked_at IS NULL AND paged_at > now() - interval '24 hours'",
+        "rawSql": "SELECT COUNT(*) as value FROM escalation_log WHERE acked_at IS NULL",
         "format": "table"
       }],
       "options": {"colorMode": "background"},
@@ -41,7 +41,7 @@
       "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
       "datasource": {"uid": "canvasly-postgres"},
       "targets": [{
-        "rawSql": "SELECT ROUND(AVG(EXTRACT(EPOCH FROM (acked_at - paged_at))/60)::numeric, 1) as value FROM escalation_log WHERE acked_at IS NOT NULL AND paged_at > now() - interval '7 days'",
+        "rawSql": "SELECT ROUND(AVG(EXTRACT(EPOCH FROM (acked_at - paged_at))/60)::numeric, 1) as value FROM escalation_log WHERE acked_at IS NOT NULL",
         "format": "table"
       }],
       "fieldConfig": {"defaults": {"unit": "m", "color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 15}, {"color": "red", "value": 30}]}}}

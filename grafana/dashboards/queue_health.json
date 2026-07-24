@@ -7,16 +7,16 @@
   "schemaVersion": 38,
   "version": 1,
   "refresh": "30s",
-  "time": {"from": "now-24h", "to": "now"},
+  "time": {"from": "now-365d", "to": "now"},
   "panels": [
     {
       "id": 1,
-      "title": "Total Tickets (24h)",
+      "title": "Total Tickets",
       "type": "stat",
       "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
       "datasource": {"uid": "canvasly-postgres"},
       "targets": [{
-        "rawSql": "SELECT COUNT(*) as value FROM tickets WHERE created_at > now() - interval '24 hours'",
+        "rawSql": "SELECT COUNT(*) as value FROM tickets",
         "format": "table"
       }],
       "options": {"colorMode": "background", "graphMode": "none"},
@@ -24,12 +24,12 @@
     },
     {
       "id": 2,
-      "title": "Enterprise Tickets (24h)",
+      "title": "Enterprise Tickets",
       "type": "stat",
       "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
       "datasource": {"uid": "canvasly-postgres"},
       "targets": [{
-        "rawSql": "SELECT COUNT(*) as value FROM tickets WHERE created_at > now() - interval '24 hours' AND is_enterprise = true",
+        "rawSql": "SELECT COUNT(*) as value FROM tickets WHERE is_enterprise = true",
         "format": "table"
       }],
       "options": {"colorMode": "background"},
@@ -37,12 +37,12 @@
     },
     {
       "id": 3,
-      "title": "Auto-Resolved (24h)",
+      "title": "Auto-Resolved",
       "type": "stat",
       "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
       "datasource": {"uid": "canvasly-postgres"},
       "targets": [{
-        "rawSql": "SELECT COUNT(*) as value FROM tickets WHERE created_at > now() - interval '24 hours' AND auto_resolved = true",
+        "rawSql": "SELECT COUNT(*) as value FROM tickets WHERE auto_resolved = true",
         "format": "table"
       }],
       "options": {"colorMode": "background"},
@@ -50,12 +50,12 @@
     },
     {
       "id": 4,
-      "title": "Escalations (24h)",
+      "title": "Escalations Paged",
       "type": "stat",
       "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4},
       "datasource": {"uid": "canvasly-postgres"},
       "targets": [{
-        "rawSql": "SELECT COUNT(*) as value FROM tickets WHERE created_at > now() - interval '24 hours' AND escalation_paged = true",
+        "rawSql": "SELECT COUNT(*) as value FROM tickets WHERE escalation_paged = true",
         "format": "table"
       }],
       "options": {"colorMode": "background"},
@@ -68,7 +68,7 @@
       "gridPos": {"x": 16, "y": 0, "w": 4, "h": 4},
       "datasource": {"uid": "canvasly-postgres"},
       "targets": [{
-        "rawSql": "SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY first_response_min) as value FROM tickets WHERE first_response_min IS NOT NULL AND created_at > now() - interval '24 hours'",
+        "rawSql": "SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY first_response_min) as value FROM tickets WHERE first_response_min IS NOT NULL",
         "format": "table"
       }],
       "options": {"colorMode": "background"},
@@ -76,34 +76,34 @@
     },
     {
       "id": 6,
-      "title": "Tickets by Channel (24h)",
+      "title": "Tickets by Channel",
       "type": "piechart",
       "gridPos": {"x": 0, "y": 4, "w": 8, "h": 8},
       "datasource": {"uid": "canvasly-postgres"},
       "targets": [{
-        "rawSql": "SELECT channel as \"Channel\", COUNT(*) as \"Count\" FROM tickets WHERE created_at > now() - interval '24 hours' GROUP BY channel ORDER BY 2 DESC",
+        "rawSql": "SELECT channel as \"Channel\", COUNT(*) as \"Count\" FROM tickets GROUP BY channel ORDER BY 2 DESC",
         "format": "table"
       }]
     },
     {
       "id": 7,
-      "title": "Tickets by Category (24h)",
+      "title": "Tickets by Category",
       "type": "barchart",
       "gridPos": {"x": 8, "y": 4, "w": 16, "h": 8},
       "datasource": {"uid": "canvasly-postgres"},
       "targets": [{
-        "rawSql": "SELECT category as \"Category\", COUNT(*) as \"Count\" FROM tickets WHERE created_at > now() - interval '24 hours' GROUP BY category ORDER BY 2 DESC LIMIT 10",
+        "rawSql": "SELECT category as \"Category\", COUNT(*) as \"Count\" FROM tickets GROUP BY category ORDER BY 2 DESC LIMIT 10",
         "format": "table"
       }]
     },
     {
       "id": 8,
-      "title": "Routing Decisions (24h)",
+      "title": "Routing Decisions",
       "type": "piechart",
       "gridPos": {"x": 0, "y": 12, "w": 8, "h": 8},
       "datasource": {"uid": "canvasly-postgres"},
       "targets": [{
-        "rawSql": "SELECT COALESCE(triage_routing, 'pending') as \"Routing\", COUNT(*) as \"Count\" FROM tickets WHERE created_at > now() - interval '24 hours' GROUP BY 1 ORDER BY 2 DESC",
+        "rawSql": "SELECT COALESCE(triage_routing, 'pending') as \"Routing\", COUNT(*) as \"Count\" FROM tickets GROUP BY 1 ORDER BY 2 DESC",
         "format": "table"
       }]
     },
@@ -114,7 +114,7 @@
       "gridPos": {"x": 8, "y": 12, "w": 16, "h": 8},
       "datasource": {"uid": "canvasly-postgres"},
       "targets": [{
-        "rawSql": "SELECT first_response_min as \"FRT (min)\" FROM tickets WHERE first_response_min IS NOT NULL AND created_at > now() - interval '7 days' ORDER BY 1",
+        "rawSql": "SELECT first_response_min as \"FRT (min)\" FROM tickets WHERE first_response_min IS NOT NULL ORDER BY 1",
         "format": "table"
       }]
     }

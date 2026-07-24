@@ -19,7 +19,9 @@
 #   5 — Churn risk account         (multiple tickets from at-risk enterprise account)
 # =============================================================================
 
-set -e
+# Note: intentionally NOT using set -e or -u — the JSON payloads contain $ signs
+# that would be misread as shell variables under -u (e.g. $87,500 ARR).
+set -o pipefail
 
 WEBHOOK_URL="${WEBHOOK_URL:-http://localhost:8010/webhook/ticket}"
 SLACK_LOG="${SLACK_LOG:-http://localhost:8004/api/notifications}"
@@ -59,8 +61,13 @@ fire() {
 
 check_slack() {
     echo -e "${YELLOW}📬 Slack notification log:${NC}"
-    curl -s "${SLACK_LOG}?limit=5" | python3 -m json.tool 2>/dev/null | \
-        grep -E '"text"|"channel"|"ts"' | head -30 || echo "  (curl or python3 not available)"
+    echo "  → Open in browser: ${SLACK_LOG}"
+    result=$(curl -sf "${SLACK_LOG}/json?limit=3" 2>/dev/null) || true
+    if [ -n "$result" ]; then
+        echo "$result" | grep -o '"channel":"[^"]*"\|"ts":"[^"]*"' | sed 's/"//g; s/:/: /' | head -20
+    else
+        echo "  (no notifications yet or service not reachable)"
+    fi
     echo ""
 }
 
@@ -222,7 +229,7 @@ scenario_4() {
 # ─────────────────────────────────────────────────────────────────────────────
 scenario_5() {
     header "5" "Churn Risk — DataForge Account Cluster"
-    echo "Firing 3 tickets from DataForge (health score 28, $87,500 ARR, renewal July 2026)"
+    echo 'Firing 3 tickets from DataForge (health score 28, $87,500 ARR, renewal July 2026)'
     echo "Expected: Grafana Churn Risk dashboard lights up for DataForge"
     echo ""
 

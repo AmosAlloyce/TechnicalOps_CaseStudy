@@ -7,11 +7,11 @@
   "schemaVersion": 38,
   "version": 1,
   "refresh": "30s",
-  "time": {"from": "now-24h", "to": "now"},
+  "time": {"from": "now-365d", "to": "now"},
   "panels": [
     {
       "id": 1,
-      "title": "LLM Provider",
+      "title": "LLM Provider (last used)",
       "type": "stat",
       "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
       "datasource": {"uid": "canvasly-postgres"},
@@ -24,24 +24,24 @@
     },
     {
       "id": 2,
-      "title": "Auto-Resolved Today",
+      "title": "Auto-Resolved Total",
       "type": "stat",
       "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
       "datasource": {"uid": "canvasly-postgres"},
       "targets": [{
-        "rawSql": "SELECT COUNT(*) as value FROM tickets WHERE auto_resolved = true AND created_at > now() - interval '24 hours'",
+        "rawSql": "SELECT COUNT(*) as value FROM tickets WHERE auto_resolved = true",
         "format": "table"
       }],
       "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}]}}}
     },
     {
       "id": 3,
-      "title": "Fallback to Rules (24h)",
+      "title": "Fallback to Rules",
       "type": "stat",
       "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
       "datasource": {"uid": "canvasly-postgres"},
       "targets": [{
-        "rawSql": "SELECT COUNT(*) as value FROM agent_decisions WHERE fallback_used = true AND decided_at > now() - interval '24 hours'",
+        "rawSql": "SELECT COUNT(*) as value FROM tickets WHERE llm_provider_used = 'rules'",
         "format": "table"
       }],
       "options": {"colorMode": "background"},
@@ -54,41 +54,41 @@
       "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4},
       "datasource": {"uid": "canvasly-postgres"},
       "targets": [{
-        "rawSql": "SELECT COUNT(*) as value FROM tickets WHERE draft_response IS NOT NULL AND auto_resolved = false AND triage_routing = 'standard_queue' AND created_at > now() - interval '24 hours'",
+        "rawSql": "SELECT COUNT(*) as value FROM tickets WHERE draft_response IS NOT NULL AND auto_resolved = false AND triage_routing = 'standard_queue'",
         "format": "table"
       }],
       "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "blue", "value": null}]}}}
     },
     {
       "id": 5,
-      "title": "Triage Decision Log (24h)",
+      "title": "Triage Decision Log",
       "type": "table",
       "gridPos": {"x": 0, "y": 4, "w": 24, "h": 10},
       "datasource": {"uid": "canvasly-postgres"},
       "targets": [{
-        "rawSql": "SELECT ticket_id, created_at, category, COALESCE(triage_routing, 'pending') as routing, llm_provider_used as llm, CASE WHEN auto_resolved THEN '✓ auto-resolved' ELSE '' END as status, LEFT(triage_reasoning, 80) as reasoning FROM tickets WHERE created_at > now() - interval '24 hours' ORDER BY created_at DESC LIMIT 50",
+        "rawSql": "SELECT ticket_id, created_at, category, COALESCE(triage_routing, 'pending') as routing, llm_provider_used as llm, CASE WHEN auto_resolved THEN '✓ auto-resolved' ELSE '' END as status, LEFT(triage_reasoning, 80) as reasoning FROM tickets ORDER BY created_at DESC LIMIT 50",
         "format": "table"
       }]
     },
     {
       "id": 6,
-      "title": "LLM Provider Usage Over Time",
-      "type": "timeseries",
+      "title": "LLM Provider Breakdown",
+      "type": "piechart",
       "gridPos": {"x": 0, "y": 14, "w": 12, "h": 8},
       "datasource": {"uid": "canvasly-postgres"},
       "targets": [{
-        "rawSql": "SELECT date_trunc('hour', decided_at) as time, llm_provider as provider, COUNT(*) as decisions FROM agent_decisions WHERE decided_at > now() - interval '7 days' GROUP BY 1, 2 ORDER BY 1",
+        "rawSql": "SELECT COALESCE(llm_provider_used, 'not triaged') as \"Provider\", COUNT(*) as \"Count\" FROM tickets GROUP BY 1 ORDER BY 2 DESC",
         "format": "table"
       }]
     },
     {
       "id": 7,
-      "title": "Fallback Rate Over Time",
-      "type": "timeseries",
+      "title": "Routing Decision Breakdown",
+      "type": "barchart",
       "gridPos": {"x": 12, "y": 14, "w": 12, "h": 8},
       "datasource": {"uid": "canvasly-postgres"},
       "targets": [{
-        "rawSql": "SELECT date_trunc('hour', decided_at) as time, COUNT(*) FILTER (WHERE fallback_used = true) as fallbacks, COUNT(*) as total FROM agent_decisions WHERE decided_at > now() - interval '7 days' GROUP BY 1 ORDER BY 1",
+        "rawSql": "SELECT COALESCE(triage_routing, 'pending') as \"Routing\", COUNT(*) as \"Count\" FROM tickets GROUP BY 1 ORDER BY 2 DESC",
         "format": "table"
       }]
     }

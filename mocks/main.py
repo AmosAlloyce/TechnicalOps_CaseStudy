@@ -21,7 +21,7 @@ from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 # ─────────────────────────────────────────────
@@ -127,6 +127,14 @@ TICKET_ACCOUNT_MAP = {
     "T-4823": "novatech",
     "T-4829": "ridgeline-corp",
     "T-4805": "novatech",
+    # Demo scenario tickets — mapped so enterprise/churn logic triggers correctly
+    "DEMO-001": "general",           # Scenario 1: standard account, magic import retry
+    "DEMO-002": "dataforge",         # Scenario 2: enterprise (DataForge, 175 seats, high priority)
+    "DEMO-003": "general",           # Scenario 3: standard billing question
+    "DEMO-004": "novatech",          # Scenario 4: CSAT anomaly on enterprise account
+    "DEMO-005A": "dataforge",        # Scenario 5: churn risk cluster
+    "DEMO-005B": "dataforge",
+    "DEMO-005C": "dataforge",
 }
 
 def get_account_for_ticket(ticket_id: str) -> dict:
@@ -290,8 +298,90 @@ def post_message(msg: SlackMessage):
     print(f"[MOCK SLACK] #{msg.channel}: {msg.text}")
     return {"ok": True, "ts": entry["ts"]}
 
-@slack_app.get("/api/notifications")
+@slack_app.get("/api/notifications", response_class=HTMLResponse)
 def get_notifications(limit: int = 50):
+    entries = notification_log[-limit:]
+    total = len(notification_log)
+
+    rows = []
+    for e in reversed(entries):
+        ts = e.get("ts", "")
+        channel = e.get("channel", "")
+        text = e.get("text", "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+        meta = e.get("metadata") or {}
+        meta_html = ""
+        if meta:
+            meta_html = " &nbsp;·&nbsp; ".join(
+                f"<span class='meta-key'>{k}</span> <span class='meta-val'>{v}</span>"
+                for k, v in meta.items() if v is not None
+            )
+        channel_class = "ch-oncall" if "oncall" in channel else ("ch-health" if "health" in channel else ("ch-ops" if "ops" in channel else "ch-default"))
+        rows.append(f"""
+        <tr>
+          <td class="ts">{ts[:19].replace("T", " ")}</td>
+          <td><span class="channel {channel_class}">{channel}</span></td>
+          <td class="msg">{text}{('<div class="meta">' + meta_html + '</div>') if meta_html else ''}</td>
+        </tr>""")
+
+    rows_html = "\n".join(rows) if rows else "<tr><td colspan='3' class='empty'>No notifications yet.</td></tr>"
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="refresh" content="5">
+<title>Mock Slack — Notification Log</title>
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ font-family: -apple-system, "Segoe UI", system-ui, sans-serif; font-size: 14px;
+         line-height: 1.5; background: #f7f8fa; color: #1f2328; padding: 24px 16px; }}
+  .page {{ max-width: 900px; margin: 0 auto; }}
+  header {{ display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; }}
+  h1 {{ font-size: 18px; font-weight: 700; }}
+  .badge {{ background: #e5e7eb; border-radius: 20px; padding: 2px 10px;
+            font-size: 12px; font-weight: 600; color: #57606a; }}
+  .hint {{ font-size: 12px; color: #57606a; margin-left: auto; }}
+  table {{ width: 100%; border-collapse: collapse; background: #fff;
+           border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; }}
+  th {{ background: #f7f8fa; text-align: left; padding: 9px 14px; font-size: 12px;
+        font-weight: 600; color: #57606a; border-bottom: 1px solid #e5e7eb; }}
+  td {{ padding: 10px 14px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }}
+  tr:last-child td {{ border-bottom: none; }}
+  .ts {{ font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px;
+         color: #57606a; white-space: nowrap; }}
+  .channel {{ display: inline-block; font-family: "SFMono-Regular", Consolas, monospace;
+              font-size: 12px; font-weight: 600; border-radius: 3px; padding: 1px 7px; }}
+  .ch-oncall  {{ background: #ffebe9; color: #cf222e; }}
+  .ch-health  {{ background: #fff8c5; color: #9a6700; }}
+  .ch-ops     {{ background: #dafbe1; color: #1a7f37; }}
+  .ch-default {{ background: #ddf4ff; color: #0969da; }}
+  .msg {{ max-width: 600px; word-break: break-word; }}
+  .meta {{ margin-top: 6px; font-size: 11px; color: #57606a; }}
+  .meta-key {{ font-weight: 600; }}
+  .meta-val {{ color: #1f2328; }}
+  .empty {{ text-align: center; padding: 32px; color: #57606a; font-style: italic; }}
+  footer {{ margin-top: 20px; text-align: center; font-size: 11px; color: #57606a;
+            border-top: 1px solid #e5e7eb; padding-top: 12px; }}
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <h1>Mock Slack — Notification Log</h1>
+    <span class="badge">{total} total</span>
+    <span class="hint">auto-refreshes every 5s</span>
+  </header>
+  <table>
+    <thead><tr><th>Time</th><th>Channel</th><th>Message</th></tr></thead>
+    <tbody>{rows_html}</tbody>
+  </table>
+  <footer>Made with IBM Bob</footer>
+</div>
+</body>
+</html>"""
+
+@slack_app.get("/api/notifications/json")
+def get_notifications_json(limit: int = 50):
     return {"notifications": notification_log[-limit:], "total": len(notification_log)}
 
 @slack_app.delete("/api/notifications")

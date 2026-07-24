@@ -147,14 +147,15 @@ def send_slack_alert(ticket: dict, agents: list[dict]) -> None:
     account_name = ticket.get("account_name", "Unknown Account")
     ticket_id    = ticket["ticket_id"]
     category     = ticket.get("category", "")
-    seat_count   = ticket.get("account_seat_count", "?")
-    arr          = ticket.get("account_arr", "?")
+    seat_count   = ticket.get("account_seat_count") or "?"
+    arr_raw      = ticket.get("account_arr")
+    arr_str      = f"${arr_raw:,.0f}" if arr_raw is not None else "?"
 
     text = (
         f":rotating_light: *AFTER-HOURS ENTERPRISE ESCALATION* :rotating_light:\n"
         f"{mentions}\n"
         f"*Ticket:* {ticket_id}  |  *Account:* {account_name}  |  "
-        f"*Seats:* {seat_count}  |  *ARR:* ${arr:,.0f}\n"
+        f"*Seats:* {seat_count}  |  *ARR:* {arr_str}\n"
         f"*Issue:* {category}\n"
         f"*Notes:* {ticket.get('internal_notes', '')[:200]}"
     )
