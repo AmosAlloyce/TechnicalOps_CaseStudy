@@ -4,7 +4,7 @@
   "nodes": [
     {
       "id": "webhook-trigger",
-      "name": "Escalation Webhook",
+      "name": "EscalationWebhook",
       "type": "n8n-nodes-base.webhook",
       "parameters": {
         "httpMethod": "POST",
@@ -13,22 +13,6 @@
         "responseData": "allEntries"
       },
       "position": [240, 300]
-    },
-    {
-      "id": "format-message",
-      "name": "Format Slack Alert",
-      "type": "n8n-nodes-base.set",
-      "parameters": {
-        "values": {
-          "string": [
-            {
-              "name": "slack_text",
-              "value": "=:rotating_light: *ENTERPRISE ALERT* — Ticket {{ $json.ticket_id }}\n*Account:* {{ $json.account_name }} ({{ $json.account_seat_count }} seats)\n*Issue:* {{ $json.category }}\n*Priority:* {{ $json.priority }}\n*Notes:* {{ $json.internal_notes }}"
-            }
-          ]
-        }
-      },
-      "position": [460, 300]
     },
     {
       "id": "send-slack",
@@ -41,16 +25,15 @@
         "bodyParameters": {
           "parameters": [
             {"name": "channel", "value": "#enterprise-oncall"},
-            {"name": "text", "value": "={{ $json.slack_text }}"}
+            {"name": "text", "value": "=:rotating_light: *ENTERPRISE ALERT* — Ticket {{ $json.body.ticket_id }}\n*Account:* {{ $json.body.account_name }} ({{ $json.body.account_seat_count }} seats)\n*Issue:* {{ $json.body.category }}\n*Priority:* {{ $json.body.priority }}\n*Notes:* {{ $json.body.internal_notes }}"}
           ]
         }
       },
-      "position": [680, 300]
+      "position": [520, 300]
     }
   ],
   "connections": {
-    "Escalation Webhook": {"main": [[{"node": "Format Slack Alert", "type": "main", "index": 0}]]},
-    "Format Slack Alert": {"main": [[{"node": "Post to Slack", "type": "main", "index": 0}]]}
+    "EscalationWebhook": {"main": [[{"node": "Post to Slack", "type": "main", "index": 0}]]}
   },
   "active": true,
   "settings": {}

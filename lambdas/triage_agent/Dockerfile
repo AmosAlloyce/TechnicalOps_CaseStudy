@@ -7,5 +7,7 @@ COPY agents/ ./agents/
 COPY lambdas/__init__.py ./lambdas/__init__.py
 COPY lambdas/webhook_receiver/ ./lambdas/webhook_receiver/
 COPY lambdas/triage_agent/ ./lambdas/triage_agent/
+COPY lambdas/escalation/ ./lambdas/escalation/
+COPY tests/ ./tests/
 EXPOSE 8012
 CMD ["python", "-m", "lambdas.triage_agent.handler"]

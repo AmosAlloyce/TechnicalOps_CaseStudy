@@ -4,7 +4,7 @@
   "nodes": [
     {
       "id": "webhook-trigger",
-      "name": "Triage Auto-Resolve Webhook",
+      "name": "TriageAutoResolveWebhook",
       "type": "n8n-nodes-base.webhook",
       "parameters": {
         "httpMethod": "POST",
@@ -19,7 +19,7 @@
       "type": "n8n-nodes-base.if",
       "parameters": {
         "conditions": {
-          "string": [{"value1": "={{ $json.routing }}", "operation": "equal", "value2": "auto_resolve"}]
+              "string": [{"value1": "={{ $json.body.routing }}", "operation": "equal", "value2": "auto_resolve"}]
         }
       },
       "position": [460, 300]
@@ -30,11 +30,11 @@
       "type": "n8n-nodes-base.httpRequest",
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.MOCK_ZENDESK_URL }}/api/v2/tickets/{{ $json.ticket_id }}/reply",
+        "url": "={{ $env.MOCK_ZENDESK_URL }}/api/v2/tickets/{{ $json.body.ticket_id }}/reply",
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
-            {"name": "body", "value": "={{ $json.draft_response }}"},
+            {"name": "body", "value": "={{ $json.body.draft_response }}"},
             {"name": "public", "value": "true"}
           ]
         }
@@ -52,7 +52,7 @@
         "bodyParameters": {
           "parameters": [
             {"name": "channel", "value": "#support-ops"},
-            {"name": "text", "value": "=✅ Auto-resolved: {{ $json.ticket_id }} — Magic Import retry. No agent needed."}
+            {"name": "text", "value": "=✅ Auto-resolved: {{ $('TriageAutoResolveWebhook').item.json.body.ticket_id }} — Magic Import retry. No agent needed."}
           ]
         }
       },
@@ -60,7 +60,7 @@
     }
   ],
   "connections": {
-    "Triage Auto-Resolve Webhook": {"main": [[{"node": "Is Auto-Resolve?", "type": "main", "index": 0}]]},
+    "TriageAutoResolveWebhook": {"main": [[{"node": "Is Auto-Resolve?", "type": "main", "index": 0}]]},
     "Is Auto-Resolve?": {"main": [[{"node": "Send Retry Message", "type": "main", "index": 0}], []]},
     "Send Retry Message": {"main": [[{"node": "Log to Slack", "type": "main", "index": 0}]]}
   },

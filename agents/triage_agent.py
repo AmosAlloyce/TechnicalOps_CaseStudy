@@ -115,6 +115,10 @@ MAGIC_IMPORT_RETRY_KEYWORDS = [
     "failed again", "retry resolved", "try again", "reload",
 ]
 
+MAGIC_IMPORT_HARD_FAILURE_KEYWORDS = [
+    "file size", "50mb", "size limit", "too large", "oversized",
+]
+
 RETRY_RESPONSE_TEMPLATE = (
     "Hi there,\n\n"
     "Thanks for reaching out about the import issue. "
@@ -126,48 +130,130 @@ RETRY_RESPONSE_TEMPLATE = (
     "Apologies for the inconvenience.\n\nThe Canvasly Support Team"
 )
 
+FILE_SIZE_RESPONSE_TEMPLATE = (
+    "Hi there,\n\n"
+    "The import failed because the file is larger than Canvasly's 50MB limit. "
+    "Please reduce the file size and try again. If you need help preparing the "
+    "file, reply here and our team will help.\n\n"
+    "The Canvasly Support Team"
+)
 
-def rule_based_routing(state: TicketState) -> TicketState:
+
+def classify_from_rules(state: TicketState) -> tuple[str, str, bool]:
+    """Return a conservative issue class, severity, and retry signal."""
+    category = (state.get("category") or "").lower()
+    priority = (state.get("priority") or "").lower()
+    notes = (state.get("internal_notes") or "").lower()
+
+    if "magic import" in category and "quality" in category:
+        issue_class = "magic_import_quality"
+    elif "magic import" in category and "error" in category:
+        issue_class = "magic_import_error"
+    elif "billing" in category:
+        issue_class = "billing"
+    elif "access" in category or "onboarding" in category:
+        issue_class = "account_access"
+    elif "performance" in category:
+        issue_class = "canvas_performance"
+    elif "feature" in category:
+        issue_class = "feature_request"
+    else:
+        issue_class = "other"
+
+    is_hard_failure = any(keyword in notes for keyword in MAGIC_IMPORT_HARD_FAILURE_KEYWORDS)
+    is_retry = (
+        issue_class == "magic_import_error"
+        and not is_hard_failure
+        and any(keyword in notes for keyword in MAGIC_IMPORT_RETRY_KEYWORDS)
+    )
+
+    if priority == "high" or "cancellation" in category or "downgrade" in category:
+        severity = "high"
+    elif priority == "medium":
+        severity = "medium"
+    else:
+        severity = "low"
+    return issue_class, severity, is_retry
+
+
+def draft_from_rules(state: TicketState, routing: str, is_retry: bool) -> str | None:
+    """Produce safe, deterministic demo drafts without inventing policy."""
+    category = (state.get("category") or "").lower()
+    account_name = state.get("account_name") or "your team"
+    if is_retry:
+        return RETRY_RESPONSE_TEMPLATE
+    if "magic import" in category and "error" in category:
+        return FILE_SIZE_RESPONSE_TEMPLATE
+    if routing == "escalate":
+        return (
+            f"Hi,\n\nWe've received this urgent issue for {account_name} and escalated it "
+            "to our on-call team. We will provide an update within 30 minutes.\n\n"
+            "The Canvasly Support Team"
+        )
+    if "billing" in category:
+        return (
+            "Hi,\n\nThanks for reaching out. We've received your billing question and "
+            "are checking the account details now. We'll follow up with a clear answer.\n\n"
+            "The Canvasly Support Team"
+        )
+    if "access" in category or "onboarding" in category:
+        return (
+            "Hi,\n\nWe've received your access request and are reviewing the workspace "
+            "configuration. We'll update you as soon as we have the next step.\n\n"
+            "The Canvasly Support Team"
+        )
+    if routing == "enterprise_queue":
+        return (
+            f"Hi,\n\nWe've prioritised this request for {account_name} and assigned it to "
+            "our enterprise support queue. We'll keep you updated.\n\n"
+            "The Canvasly Support Team"
+        )
+    return None
+
+
+def rule_based_routing(state: TicketState, *, fallback_used: bool = True) -> TicketState:
     """
     Deterministic fallback routing. Used when LLM output fails validation.
     Always logs that rules were used so it's visible in Grafana.
     """
-    category  = (state.get("category") or "").lower()
-    priority  = (state.get("priority") or "").lower()
-    notes     = (state.get("internal_notes") or "").lower()
-    is_ent    = bool(state.get("is_enterprise", False))
+    priority = (state.get("priority") or "").lower()
+    is_ent = bool(state.get("is_enterprise", False))
+    issue_class, severity, is_retry = classify_from_rules(state)
 
-    # Detect Magic Import retry pattern
-    is_retry = (
-        "magic import - error" in category
-        and any(kw in notes for kw in MAGIC_IMPORT_RETRY_KEYWORDS)
-    )
-
-    if is_retry:
+    # Do not autonomously close enterprise tickets, even when the likely fix is a retry.
+    if is_retry and not is_ent:
         routing = "auto_resolve"
         reason  = "Magic Import transient error — retry pattern detected by rules"
-        draft   = RETRY_RESPONSE_TEMPLATE
+    elif is_retry and is_ent:
+        routing = "enterprise_queue"
+        reason  = "Enterprise Magic Import retry pattern — draft response, human review required"
     elif is_ent and priority == "high":
         routing = "escalate"
         reason  = "Enterprise account + high priority — escalate"
-        draft   = f"This is a high-priority issue for {state.get('account_name', 'an enterprise account')}. Escalating immediately."
     elif is_ent:
         routing = "enterprise_queue"
         reason  = "Enterprise account — route to enterprise priority queue"
-        draft   = None
     else:
         routing = "standard_queue"
         reason  = "Standard ticket — route to general queue"
-        draft   = None
+
+    if is_retry and not is_ent:
+        draft = RETRY_RESPONSE_TEMPLATE
+    elif issue_class == "magic_import_error" and not is_retry:
+        draft = FILE_SIZE_RESPONSE_TEMPLATE
+    else:
+        draft = draft_from_rules(state, routing, is_retry)
 
     return {
         **state,
-        "is_retry_pattern":  is_retry,
-        "routing":           routing,
-        "routing_reason":    reason,
-        "draft_response":    draft,
+        "issue_class":     issue_class,
+        "severity":        severity,
+        "is_retry_pattern": is_retry,
+        "routing":         routing,
+        "routing_reason":  reason,
+        "draft_response":  draft,
         "llm_provider_used": "rules",
-        "fallback_used":     True,
+        "fallback_used":   fallback_used,
     }
 
 
@@ -252,11 +338,16 @@ def make_classify_node(llm: BaseLLMClient):
         )
         try:
             result = llm.complete_json(prompt)
+            issue_class = result.get("issue_class", "other")
+            is_retry = bool(result.get("is_retry_pattern", False))
+            notes = (state.get("internal_notes") or "").lower()
+            if any(keyword in notes for keyword in MAGIC_IMPORT_HARD_FAILURE_KEYWORDS):
+                is_retry = False
             return {
                 **state,
-                "issue_class":       result.get("issue_class", "other"),
+                "issue_class":       issue_class,
                 "severity":          result.get("severity", "low"),
-                "is_retry_pattern":  bool(result.get("is_retry_pattern", False)),
+                "is_retry_pattern":  is_retry,
                 "llm_provider_used": type(llm).__name__.lower().replace("client", ""),
                 "fallback_used":     False,
             }
@@ -289,6 +380,8 @@ def make_routing_node(llm: BaseLLMClient):
             routing = result.get("routing", "standard_queue")
             if routing not in ("auto_resolve", "enterprise_queue", "standard_queue", "escalate"):
                 raise ValueError(f"Invalid routing value: {routing}")
+            if state.get("is_enterprise") and routing == "auto_resolve":
+                routing = "enterprise_queue"
             return {
                 **state,
                 "routing":        routing,
@@ -378,7 +471,7 @@ def persist_decision(state: TicketState) -> None:
                     state.get("routing_reason"),
                     state.get("llm_provider_used"),
                     state.get("draft_response"),
-                    state.get("routing") == "auto_resolve",
+                    False,
                     state["ticket_id"],
                 ),
             )
@@ -407,6 +500,16 @@ def persist_decision(state: TicketState) -> None:
     )
 
 
+def mark_auto_resolved(ticket_id: str) -> None:
+    """Mark a ticket solved only after the external reply/status update succeeds."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE tickets SET auto_resolved = TRUE, updated_at = now() WHERE ticket_id = %s",
+                (ticket_id,),
+            )
+
+
 # ─────────────────────────────────────────────
 # Public API
 # ─────────────────────────────────────────────
@@ -416,11 +519,6 @@ def triage(ticket: dict, llm: BaseLLMClient | None = None) -> dict:
     Main entry point. Runs the LangGraph triage pipeline on an enriched ticket.
     Returns the final state dict with routing decision and draft response.
     """
-    if llm is None:
-        llm = get_llm_client()
-
-    graph = build_graph(llm)
-
     initial_state: TicketState = {
         "ticket_id":          ticket.get("ticket_id", ""),
         "created_at":         ticket.get("created_at", ""),
@@ -449,6 +547,16 @@ def triage(ticket: dict, llm: BaseLLMClient | None = None) -> dict:
         "llm_provider_used":  None,
         "fallback_used":      False,
     }
+
+    if os.environ.get("LLM_PROVIDER", "rules").lower() == "rules":
+        final_state = rule_based_routing(initial_state, fallback_used=False)
+        persist_decision(final_state)
+        return final_state
+
+    if llm is None:
+        llm = get_llm_client()
+
+    graph = build_graph(llm)
 
     final_state = graph.invoke(initial_state)
     persist_decision(final_state)

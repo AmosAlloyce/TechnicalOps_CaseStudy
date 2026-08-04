@@ -37,6 +37,10 @@ def load_tickets() -> list[dict]:
         return list(csv.DictReader(f))
 
 TICKETS = load_tickets()
+TICKET_STATES: dict[str, dict] = {
+    ticket["ticket_id"]: {"status": "open", "replies": []}
+    for ticket in TICKETS
+}
 
 # ─────────────────────────────────────────────
 # Account data derived from ticket seed
@@ -174,19 +178,35 @@ def list_tickets():
 @zendesk_app.get("/api/v2/tickets/{ticket_id}")
 def get_ticket(ticket_id: str):
     ticket = next((t for t in TICKETS if t["ticket_id"] == ticket_id), None)
-    if not ticket:
+    state = TICKET_STATES.get(ticket_id)
+    if not ticket and not state:
         raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} not found")
-    return {"ticket": ticket}
+    return {"ticket": ticket, "state": state or {"status": "open", "replies": []}}
 
 @zendesk_app.post("/api/v2/tickets/{ticket_id}/reply")
 def reply_to_ticket(ticket_id: str, body: dict):
     """Simulates sending a reply on a ticket (used by auto-resolve flow)."""
+    state = TICKET_STATES.setdefault(ticket_id, {"status": "open", "replies": []})
+    state["replies"].append({
+        "body": body.get("body", ""),
+        "public": bool(body.get("public", True)),
+        "timestamp": datetime.utcnow().isoformat(),
+    })
     return {
         "status": "sent",
         "ticket_id": ticket_id,
         "message": body.get("body", ""),
         "timestamp": datetime.utcnow().isoformat(),
     }
+
+
+@zendesk_app.put("/api/v2/tickets/{ticket_id}")
+def update_ticket(ticket_id: str, body: dict):
+    """Simulates the Zendesk status update used to solve a ticket."""
+    state = TICKET_STATES.setdefault(ticket_id, {"status": "open", "replies": []})
+    if body.get("status"):
+        state["status"] = body["status"]
+    return {"status": "updated", "ticket_id": ticket_id, "state": state}
 
 @zendesk_app.post("/api/v2/tickets/fire")
 def fire_ticket(ticket: ZendeskTicketCreate):

@@ -19,7 +19,7 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from agents.triage_agent import triage
+from agents.triage_agent import mark_auto_resolved, triage
 from agents.events import publish_event
 
 logger = logging.getLogger(__name__)
@@ -29,17 +29,21 @@ MOCK_ZENDESK_URL = os.environ.get("MOCK_ZENDESK_URL", "http://localhost:8001")
 
 
 def auto_resolve_ticket(ticket_id: str, draft_response: str) -> None:
-    """Sends the auto-reply and marks ticket resolved via mock Zendesk."""
+    """Send the reply and close the ticket only after both API calls succeed."""
     import httpx
-    try:
-        with httpx.Client(timeout=10) as client:
-            client.post(
-                f"{MOCK_ZENDESK_URL}/api/v2/tickets/{ticket_id}/reply",
-                json={"body": draft_response, "public": True},
-            )
-        logger.info("Auto-resolved ticket %s", ticket_id)
-    except Exception as exc:
-        logger.warning("Auto-resolve Zendesk call failed for %s: %s", ticket_id, exc)
+    with httpx.Client(timeout=10) as client:
+        reply = client.post(
+            f"{MOCK_ZENDESK_URL}/api/v2/tickets/{ticket_id}/reply",
+            json={"body": draft_response, "public": True},
+        )
+        reply.raise_for_status()
+        status = client.put(
+            f"{MOCK_ZENDESK_URL}/api/v2/tickets/{ticket_id}",
+            json={"status": "solved"},
+        )
+        status.raise_for_status()
+    mark_auto_resolved(ticket_id)
+    logger.info("Auto-resolved ticket %s", ticket_id)
 
 
 def process_triage(ticket: dict) -> dict:

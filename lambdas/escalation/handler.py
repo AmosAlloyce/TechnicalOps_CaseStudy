@@ -89,10 +89,28 @@ def is_outside_business_hours(dt: datetime | None = None) -> bool:
         return True
     tz = ZoneInfo(BUSINESS_HOURS_TZ)
     now = (dt or datetime.now(timezone.utc)).astimezone(tz)
-    # Also treat weekends as after-hours
-    if now.weekday() >= 5:  # Saturday=5, Sunday=6
-        return True
     return not (BUSINESS_HOURS_START <= now.hour < BUSINESS_HOURS_END)
+
+
+def parse_ticket_datetime(value: str | None) -> datetime | None:
+    """Parse ISO or CSV timestamps in the configured business-hours timezone."""
+    if not value:
+        return None
+    raw = value.strip()
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"):
+            try:
+                parsed = datetime.strptime(raw, fmt)
+                break
+            except ValueError:
+                parsed = None
+        if parsed is None:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=ZoneInfo(BUSINESS_HOURS_TZ))
+    return parsed
 
 
 # ─────────────────────────────────────────────
@@ -207,9 +225,11 @@ def process_escalation(ticket: dict) -> dict:
     is_ent       = bool(ticket.get("is_enterprise", False))
     priority     = (ticket.get("priority") or "").lower()
 
-    # Use current time — we want to know if the ticket is arriving OOH right now,
-    # not whether it was created OOH (seed data has historical daytime timestamps).
-    outside_hours = is_outside_business_hours()
+    # Replay and live events both carry an arrival timestamp. Using it keeps the
+    # seeded demo faithful and avoids classifying every historical high-priority
+    # ticket based on the operator's current wall clock.
+    arrival_at = parse_ticket_datetime(ticket.get("created_at"))
+    outside_hours = is_outside_business_hours(arrival_at)
 
     logger.info(
         "Escalation check: ticket=%s enterprise=%s priority=%s outside_hours=%s",

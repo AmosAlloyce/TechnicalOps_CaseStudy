@@ -156,7 +156,7 @@ services:
       - DB_PASSWORD=canvasly_dev
       - EVENTBRIDGE_MODE=local
       - LOCAL_EVENT_BUS_URL=http://event-bus:8020/events
-      - LLM_PROVIDER=${LLM_PROVIDER:-groq}
+      - LLM_PROVIDER=${LLM_PROVIDER:-rules}
       - GROQ_API_KEY=${GROQ_API_KEY}
       - GROQ_MODEL=${GROQ_MODEL:-llama3-8b-8192}
       - OLLAMA_HOST=http://ollama:11434
@@ -268,6 +268,7 @@ services:
   n8n:
     image: n8nio/n8n:latest
     container_name: canvasly_n8n
+    entrypoint: ["/bin/sh", "/start-n8n.sh"]
     ports:
       - "5678:5678"
     environment:
@@ -276,7 +277,7 @@ services:
       - N8N_DEFAULT_ADMIN_PASSWORD=canvasly_dev
       - N8N_DEFAULT_ADMIN_FIRST_NAME=Canvasly
       - N8N_DEFAULT_ADMIN_LAST_NAME=Admin
-      - N8N_SKIP_WEBHOOK_DEREGISTRATION_SHUTDOWN=true
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
       - N8N_DIAGNOSTICS_ENABLED=false
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_HOST=postgres
@@ -287,14 +288,16 @@ services:
       - DB_POSTGRESDB_SCHEMA=n8n
       - N8N_HOST=localhost
       - N8N_PORT=5678
-      - WEBHOOK_URL=http://localhost:5678
+      - N8N_WEBHOOK_URL=http://localhost:5678
       - ESCALATION_WEBHOOK_URL=http://escalation:8013
+      - MOCK_ZENDESK_URL=http://mock-apis:8001
       - MOCK_SLACK_URL=http://mock-apis:8004
       - GROQ_API_KEY=${GROQ_API_KEY:-}
       - OLLAMA_HOST=http://ollama:11434
     volumes:
       - n8n_data:/home/node/.n8n
       - ./n8n/workflows:/workflows:ro
+      - ./n8n/start-n8n.sh:/start-n8n.sh:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -304,37 +307,6 @@ services:
       timeout: 5s
       retries: 15
       start_period: 45s
-
-  # ─────────────────────────────────────────────
-  # n8n post-boot setup — runs once after n8n is healthy
-  # Patches owner credentials + imports workflows
-  # ─────────────────────────────────────────────
-  n8n-setup:
-    image: n8nio/n8n:latest
-    container_name: canvasly_n8n_setup
-    entrypoint: ["/bin/sh", "/import-workflows.sh"]
-    environment:
-      - N8N_URL=http://n8n:5678
-      - N8N_DEFAULT_ADMIN_EMAIL=admin@canvasly.local
-      - N8N_DEFAULT_ADMIN_PASSWORD=canvasly_dev
-      - N8N_DEFAULT_ADMIN_FIRST_NAME=Canvasly
-      - N8N_DEFAULT_ADMIN_LAST_NAME=Admin
-      - WORKFLOWS_DIR=/workflows
-      - DB_TYPE=postgresdb
-      - DB_POSTGRESDB_HOST=postgres
-      - DB_POSTGRESDB_PORT=5432
-      - DB_POSTGRESDB_DATABASE=canvasly
-      - DB_POSTGRESDB_USER=canvasly
-      - DB_POSTGRESDB_PASSWORD=canvasly_dev
-      - DB_POSTGRESDB_SCHEMA=n8n
-    volumes:
-      - ./n8n/workflows:/workflows:ro
-      - ./n8n/import-workflows.sh:/import-workflows.sh:ro
-      - n8n_data:/home/node/.n8n
-    depends_on:
-      n8n:
-        condition: service_healthy
-    restart: "no"
 
   # patches the n8n owner row — postgres image has psql, n8n image does not
   n8n-owner:

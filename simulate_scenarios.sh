@@ -91,7 +91,7 @@ wait_for_pipeline() {
 scenario_1() {
     header "1" "Magic Import Auto-Resolve"
     echo "Ticket: Magic Import processing failed error"
-    echo "Expected: AI detects retry pattern → auto-resolves → sends reply to customer → Slack #support-ops logs it"
+    echo "Expected: AI detects retry pattern → sends reply → marks the mock Zendesk ticket solved"
     echo ""
 
     fire "DEMO-001" '{
@@ -112,9 +112,9 @@ scenario_1() {
 
     echo -e "${GREEN}✓ Check results:${NC}"
     echo "  → Grafana: http://localhost:3000  (AI Agent Activity dashboard)"
-    echo "  → Mock Slack: http://localhost:8004/api/notifications"
+    echo "  → Mock Zendesk API: http://localhost:8001/api/v2/tickets/DEMO-001"
     echo "  → Event log: http://localhost:8020/events"
-    check_slack
+    echo ""
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -199,7 +199,9 @@ scenario_4() {
     echo -e "${YELLOW}NOTE: This fires directly to the n8n webhook, simulating a CSAT response.${NC}"
     echo ""
 
-    N8N_CSAT_URL="${N8N_CSAT_URL:-http://localhost:5678/webhook/csat-response}"
+    # n8n 2.x derives production webhook routes from the workflow ID and
+    # webhook node name when workflows are imported from JSON.
+    N8N_CSAT_URL="${N8N_CSAT_URL:-http://localhost:5678/webhook/IjgpPAU2tL55_cKtgiwRM/csatwebhook/csat-response}"
     echo -e "${GREEN}→ Firing CSAT anomaly to n8n webhook...${NC}"
     response=$(curl -s -X POST "${N8N_CSAT_URL}" \
         -H "Content-Type: application/json" \
@@ -330,7 +332,7 @@ echo -e "${GREEN}  All scenarios complete.${NC}"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo "  Grafana dashboards:    http://localhost:3000  (admin / canvasly_dev)"
-echo "  n8n workflows:         http://localhost:5678  (admin / canvasly_dev)"
+echo "  n8n workflows:         http://localhost:5678  (admin@canvasly.local / canvasly_dev)"
 echo "  Scale Simulator:       http://localhost:8502"
 echo "  Slack notification log: http://localhost:8004/api/notifications"
 echo "  Event bus log:         http://localhost:8020/events"

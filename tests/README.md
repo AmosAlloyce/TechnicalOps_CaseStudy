@@ -1,11 +1,11 @@
 # Tests
 
-Unit and integration tests for the Canvasly TechOps pipeline.
+Focused tests for deterministic demo routing and after-hours handling.
 
 Run with:
 ```bash
-pytest tests/
+docker compose run --rm --no-deps triage-agent \
+  python -m unittest discover -s tests -v
 ```
 
-Tests require the full Docker Compose stack to be running for integration tests.
-See [DEPLOYMENT.md](../DEPLOYMENT.md) for setup instructions.
+The command uses the triage image, so no host Python dependencies are required.

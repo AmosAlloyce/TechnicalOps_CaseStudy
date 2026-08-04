@@ -37,4 +37,11 @@ for file in "${WORKFLOWS_DIR}"/*.json; do
         echo "[n8n-import] WARNING: failed to import $(basename "$file") (may already exist)"
 done
 
-echo "[n8n-import] All workflows imported."
+echo "[n8n-import] Activating imported workflows..."
+n8n list:workflow | while IFS='|' read -r workflow_id workflow_name; do
+    [ -n "$workflow_id" ] || continue
+    echo "[n8n-import] Publishing: ${workflow_name} (${workflow_id})"
+    n8n publish:workflow --id="$workflow_id"
+done
+
+echo "[n8n-import] All workflows imported and activated."
